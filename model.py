@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from scipy.stats import binom
+from prettytable import PrettyTable
 
 class Model():
 
@@ -61,13 +62,12 @@ class Model():
         name_1_game_serving_WP = self.name_1_serve_WP * (1 - self.name_2_return_WP)
         name_2_game__serving_WP = self.name_2_serve_WP * (1 - self.name_1_return_WP)
         self.serving_WP = [name_1_game_serving_WP, name_2_game__serving_WP]
-        print(self.serving_WP)
 
     def win_game(self, prob_win_game):
         """Simulates a game and returns True if the server wins, False otherwise."""
         return np.random.rand() < prob_win_game
 
-    def win_set(self, simulations=1000):
+    def win_set(self, simulations=100000):
         """Simulates a set and returns the probability of Player 1 winning."""
         p1_wins = 0
         p1_game_win = self.serving_WP[0]
@@ -103,10 +103,8 @@ class Model():
                     
         return p1_wins / simulations
     
-    def win_match(self, best_of=5, simulations=10000):
+    def win_match(self, best_of=3, simulations=10000):
         """Simulates a match and returns the probability of Player 1 winning."""
-        p1_game_win = self.serving_WP[0]
-        p2_game_win = self.serving_WP[1]
         sets_needed = best_of // 2 + 1
         p1_wins = 0
         for _ in range(simulations):
@@ -129,14 +127,21 @@ if __name__ == "__main__":
     name2 = input("Enter name 2: ")
     model = Model(surface, name1, name2)
     model.get_surface_WP()
-    print(model.name_1_serve_WP)
-    print(model.name_1_return_WP)
-    print(model.name_2_serve_WP)
-    print(model.name_2_return_WP)
-    print(model.calculate_game_WP())
-    print(model.win_set())
+    # Create a table
+    table = PrettyTable()
+    table.field_names = ["Player", "Serving Win %", "Returning Win %", "Game Win %", "Set Win %"]
+
+    # Add rows for each player
+    model.calculate_game_WP()
+    table.add_row([name1, f"{model.name_1_serve_WP:.2%}", f"{model.name_1_return_WP:.2%}", f"{model.serving_WP[0]:.2%}", f"{model.win_set():.2%}"])
+    table.add_row([name2, f"{model.name_2_serve_WP:.2%}", f"{model.name_2_return_WP:.2%}", f"{model.serving_WP[1]:.2%}", f"{1 - model.win_set():.2%}"])
+    # Print the table
+    print(table)
+
+    # Print the probability of Player 1 winning a set
     print(name1 + " winning chance is " + str(model.win_match(simulations=10))+ " in 10 simulations")
     print(name1 + " winning chance is " + str(model.win_match(simulations=100)) + " in 100 simulations")
     print(name1 + " winning chance is " + str(model.win_match(simulations=1000)) + " in 1000 simulations")
     print(name1 + " winning chance is " + str(model.win_match(simulations=10000)) + " in 10000 simulations")
     print(name1 + " winning chance is " + str(model.win_match(simulations=100000)) + " in 100000 simulations")
+    print(name1 + " winning chance is " + str(model.win_match(simulations=1000000)) + " in 1000000 simulations")
