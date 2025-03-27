@@ -2,6 +2,7 @@ import numpy as np
 import math
 from scipy.stats import binom
 from prettytable import PrettyTable
+import elo_rating as e
 
 class Model():
 
