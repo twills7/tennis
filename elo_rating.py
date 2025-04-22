@@ -80,13 +80,15 @@ class Elo():
     def update_surface_elo(self, winner, loser):
 
         player_win_chance = 1 / (1 + 10 ** ((self.surface_elo[loser] - self.surface_elo[winner]) / 400))
-        self.exp_corr += player_win_chance
-        self.exp_incorr += (1 - player_win_chance)
+        if player_win_chance > .7:
+            self.exp_corr += player_win_chance
+            self.exp_incorr += (1 - player_win_chance)
 
-        if self.surface_elo[winner] > self.surface_elo[loser]:
-            self.correct += 1
-        else:
-            self.incorrect += 1
+        if player_win_chance < .3 or player_win_chance > .7:
+            if self.surface_elo[winner] > self.surface_elo[loser]:
+                self.correct += 1
+            else:
+                self.incorrect += 1
 
         kA = 250/((self.surface_matches[winner]+5)**0.4)
         kB = 250/((self.surface_matches[loser]+5)**0.4)
@@ -107,12 +109,14 @@ class Elo():
     def update_elo_this_year(self, winner, loser, year):
 
         player_win_chance = 1 / (1 + 10 ** ((self.this_year[loser] - self.this_year[winner]) / 400))
-        self.exp_corr += player_win_chance
-        self.exp_incorr += (1 - player_win_chance)
-        if self.this_year[winner] > self.this_year[loser]:
-            self.correct += 1
-        else:
-            self.incorrect += 1
+        if player_win_chance > .7:
+            self.exp_corr += player_win_chance
+            self.exp_incorr += (1 - player_win_chance)
+        if player_win_chance < .3 or player_win_chance > .7:
+            if self.this_year[winner] > self.this_year[loser]:
+                self.correct += 1
+            else:
+                self.incorrect += 1
 
         kA = 250/((self.matches[winner]+5)**0.4)
         kB = 250/((self.matches[loser]+5)**0.4)
