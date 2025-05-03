@@ -1,164 +1,177 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score, log_loss, classification_report
+from xgboost import XGBClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, roc_auc_score
+import pandas as pd
 import numpy as np
 
-# match_data_2000 = pd.read_csv('year_stats/2000')
-# match_data_2001 = pd.read_csv('year_stats/2001')
-# match_data_2002 = pd.read_csv('year_stats/2002')
-# match_data_2003 = pd.read_csv('year_stats/2003')
-# match_data_2004 = pd.read_csv('year_stats/2004')
-# match_data_2005 = pd.read_csv('year_stats/2005')
-# match_data_2006 = pd.read_csv('year_stats/2006')
-# match_data_2007 = pd.read_csv('year_stats/2007')
-# match_data_2008 = pd.read_csv('year_stats/2008')
-# match_data_2009 = pd.read_csv('year_stats/2009')
-match_data_2010 = pd.read_csv('year_stats/2010')
-match_data_2011 = pd.read_csv('year_stats/2011')
-match_data_2012 = pd.read_csv('year_stats/2012')
-match_data_2013 = pd.read_csv('year_stats/2013')
-match_data_2014 = pd.read_csv('year_stats/2014')
-match_data_2015 = pd.read_csv('year_stats/2015')
-match_data_2016 = pd.read_csv('year_stats/2016')
-match_data_2017 = pd.read_csv('year_stats/2017')
-match_data_2018 = pd.read_csv('year_stats/2018')
-match_data_2019 = pd.read_csv('year_stats/2019')
-match_data_2020 = pd.read_csv('year_stats/2020')
-match_data_2021 = pd.read_csv('year_stats/2021')
-match_data_2022 = pd.read_csv('year_stats/2022')
-match_data_2023 = pd.read_csv('year_stats/2023')
-match_data_2024 = pd.read_csv('year_stats/2024')
-match_data_2025 = pd.read_csv('year_stats/2025')
+import numpy as np
 
-df = pd.concat([match_data_2010, match_data_2011, match_data_2012, match_data_2013, match_data_2014,
-                        match_data_2015, match_data_2016, match_data_2017, match_data_2018, match_data_2019,
-                        match_data_2020, match_data_2021, match_data_2022, match_data_2023, match_data_2024,
-                        match_data_2025], ignore_index=True)
+# Load your feature dataset
+df = pd.read_csv("feature_dataset.csv")
+
+# Randomly flip 50% of rows
+flip_mask = np.random.rand(len(df)) < 0.5
+
+# Identify the columns that need to be swapped (all _1 and _2)
+feature_cols = [col for col in df.columns if '_1' in col or '_2' in col]
+pair_cols = set(col.replace('_1', '') for col in feature_cols if '_1' in col)
+
+for base in pair_cols:
+    col1 = f"{base}_1"
+    col2 = f"{base}_2"
+    # Swap these two columns where flip_mask is True
+    df.loc[flip_mask, [col1, col2]] = df.loc[flip_mask, [col2, col1]].values
+
+# Flip the winner label
+df.loc[flip_mask, 'winner'] = 1 - df.loc[flip_mask, 'winner']
+
+# Optional sanity check
+print(df['winner'].value_counts())
 
 
-df = df.dropna(subset=["WRank", "LRank", "WPts", "LPts", "Winner", "Loser", "Surface", "Round"])
+# Set target & features
+y = df['winner']
+X = df.drop(columns=['date', 'player_1', 'player_2', 'surface', 'tournament', 'round', 'winner'])
 
-print(df.head())
-df['rank_diff'] = df['WRank'] - df['LRank']
-df['points_diff'] = df['WPts'] - df['LPts']
-df['odds_diff'] = df['B365W'] - df['B365L']
+print("Class distribution (whole dataset):")
+print(df['winner'].value_counts())
+df.fillna(999, inplace=True)  # Fill NaN values with 999
 
-# Create winner's view
-winner_df = df.copy()
-winner_df['player1'] = df['Winner']
-winner_df['player2'] = df['Loser']
-winner_df['rank_diff'] = df['WRank'] - df['LRank']
-winner_df['points_diff'] = df['WPts'] - df['LPts']
-winner_df['odds_diff'] = df['B365W'] - df['B365L']
-winner_df['avg_odds_diff'] = df['AvgW'] - df['AvgL']
-winner_df['best_of_5'] = (df['Best of'] == 5).astype(int)
-winner_df['target'] = 1
+# Train/test split (time-based is better, but random is ok for now to benchmark)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-loser_df = df.copy()
-loser_df['player1'] = df['Loser']
-loser_df['player2'] = df['Winner']
-loser_df['rank_diff'] = df['LRank'] - df['WRank']
-loser_df['points_diff'] = df['LPts'] - df['WPts']
-loser_df['odds_diff'] = df['B365L'] - df['B365W']
-loser_df['avg_odds_diff'] = df['AvgL'] - df['AvgW']
-loser_df['best_of_5'] = (df['Best of'] == 5).astype(int)
-loser_df['target'] = 0
+X_train.fillna(999, inplace=True)  # Fill NaN values with 999
+X_test.fillna(999, inplace=True)  # Fill NaN values with 999
 
-# Combine them
-final_df = pd.concat([winner_df, loser_df], ignore_index=True)
-
-final_df = pd.get_dummies(final_df, columns=["Surface", "Round", "Series"], drop_first=True)
-
-# 2. Make sure date is parsed properly
-df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-
-# 3. Sort by most recent match first
-df = df.sort_values('Date', ascending=False)
-
-# Build latest player stats
-player_to_rank = {}
-player_to_avgW = {}
-player_to_avgL = {}
-
-# We'll use latest available match per player
-for idx, row in df.iterrows():
-    winner = row['Winner']
-    loser = row['Loser']
-    
-    # Update winner's stats
-    player_to_rank[winner] = row['WRank']
-    player_to_avgW[winner] = row['AvgW']
-    player_to_avgL[winner] = row['AvgL']
-    
-    # Update loser's stats
-    player_to_rank[loser] = row['LRank']
-    player_to_avgW[loser] = row['AvgW']
-    player_to_avgL[loser] = row['AvgL']
-
-features = [
-    "rank_diff", "points_diff", "odds_diff", "avg_odds_diff", "best_of_5"
-] + [col for col in final_df.columns if col.startswith("Surface_") or col.startswith("Series_")]
-
-X = final_df[features]
-y = final_df['target']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-
-
-
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
-
+print("\nClass distribution (train set):")
 print(y_train.value_counts())
-preds = model.predict(X_test)
-probs = model.predict_proba(X_test)[:, 1]
 
-print("Accuracy:", accuracy_score(y_test, preds))
-print("AUC:", roc_auc_score(y_test, probs))
+print("\nClass distribution (test set):")
+print(y_test.value_counts())
 
+# 1️⃣ Logistic Regression (baseline)
+logreg = LogisticRegression(max_iter=1000)
+logreg.fit(X_train, y_train)
+log_preds = logreg.predict(X_test)
+log_proba = logreg.predict_proba(X_test)
 
+print("\n=== Logistic Regression ===")
+print("Accuracy:", accuracy_score(y_test, log_preds))
+print("Log Loss:", log_loss(y_test, log_proba))
+print(classification_report(y_test, log_preds))
 
-example_match = {
-    "rank_diff": 12 - 8,
-    "points_diff": 2000 - 2300,
-    "odds_diff": 1.80 - 2.10,
-    "Surface_Grass": 0,
-    "Surface_Hard": 1,
-    # other dummy values...
+# 2️⃣ XGBoost Classifier
+xgb = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+xgb.fit(X_train, y_train)
+xgb_preds = xgb.predict(X_test)
+xgb_proba = xgb.predict_proba(X_test)
+
+print("\n=== XGBoost ===")
+print("Accuracy:", accuracy_score(y_test, xgb_preds))
+print("Log Loss:", log_loss(y_test, xgb_proba))
+print(classification_report(y_test, xgb_preds))
+
+# from xgboost import plot_importance
+# import matplotlib.pyplot as plt
+
+# plot_importance(xgb)
+# plt.show()
+
+rank_1 = input("Enter rank for Player 1: ")
+rank_2 = input("Enter rank for Player 2: ")
+rank_diff = int(rank_1) - int(rank_2)
+
+elo_1 = input("Enter Elo rating for Player 1: ")
+elo_2 = input("Enter Elo rating for Player 2: ")
+elo_diff = int(elo_1) - int(elo_2)
+
+elo_surface_1 = input("Enter Elo rating for Player 1 on the surface: ")
+elo_surface_2 = input("Enter Elo rating for Player 2 on the surface: ")
+elo_surface_diff = int(elo_surface_1) - int(elo_surface_2)
+
+win_pct_1 = input("Enter win percentage for Player 1: ")
+win_pct_2 = input("Enter win percentage for Player 2: ")
+win_pct_diff = float(win_pct_1) - float(win_pct_2)
+
+surface_win_pct_1 = input("Enter surface win percentage for Player 1: ")
+surface_win_pct_2 = input("Enter surface win percentage for Player 2: ")
+surface_win_pct_diff = float(surface_win_pct_1) - float(surface_win_pct_2)
+
+recent_wins_1 = input("Enter recent wins for Player 1: ")
+recent_wins_2 = input("Enter recent wins for Player 2: ")
+recent_wins_diff = int(recent_wins_1) - int(recent_wins_2)
+
+h2h_wins_1 = input("Enter H2H wins for Player 1: ")
+h2h_wins_2 = input("Enter H2H wins for Player 2: ")
+h2h_diff = int(h2h_wins_1) - int(h2h_wins_2)
+surface = input("Enter surface type (e.g., 'hard', 'clay', 'grass'): ")
+
+# Create a DataFrame for the new match
+new_match = {
+    'rank_1': int(rank_1),
+    'rank_2': int(rank_2),
+    'rank_diff': rank_diff,
+    'elo_1': int(elo_1),
+    'elo_2': int(elo_2),
+    'elo_diff': elo_diff,
+    'elo_surface_1': int(elo_surface_1),
+    'elo_surface_2': int(elo_surface_2),
+    'elo_surface_diff': elo_surface_diff,
+    'win_pct_1': float(win_pct_1),
+    'win_pct_2': float(win_pct_2),
+    'win_pct_diff': win_pct_diff,
+    'surface_win_pct_1': float(surface_win_pct_1),
+    'surface_win_pct_2': float(surface_win_pct_2),
+    'surface_win_pct_diff': surface_win_pct_diff,
+    'recent_wins_1': int(recent_wins_1),
+    'recent_wins_2': int(recent_wins_2),
+    'recent_wins_diff': recent_wins_diff,
+    'h2h_wins_1': int(h2h_wins_1),
+    'h2h_wins_2': int(h2h_wins_2),
+    'h2h_diff': h2h_diff
 }
 
-def create_match_features(player1, player2, player_to_rank, player_to_avgW, player_to_avgL, surface="Hard", round_name="R32", series="ATP250", best_of=3):
-    features = {}
-    
-    # Basic diffs
-    features["rank_diff"] = player_to_rank.get(player1, 1500) - player_to_rank.get(player2, 1500)
-    features["points_diff"] = 0  # You could add points later too
-    features["odds_diff"] = player_to_avgW.get(player1, 2.0) - player_to_avgW.get(player2, 2.0)
-    features["avg_odds_diff"] = player_to_avgW.get(player1, 2.0) - player_to_avgL.get(player2, 2.0)
-    features["best_of_5"] = 1 if best_of == 5 else 0
+# new_match = {
+#     'rank_1': 5,
+#     'rank_2': 3,
+#     'rank_diff': 5 - 3,
 
-    # One-hot surfaces and rounds
-    for s in ["Grass", "Hard"]:
-        features[f"Surface_{s}"] = 1 if surface == s else 0
+#     'elo_1': 2100,
+#     'elo_2': 2150,
+#     'elo_diff': 2100 - 2150,
 
-    for ser in ["ATP500","Grand Slam", "Masters 1000", "Masters Cup"]:
-        features[f"Series_{ser}"] = 1 if series == ser else 0
-    
-    return pd.DataFrame([features])
+#     'elo_surface_1': 2200,
+#     'elo_surface_2': 2250,
+#     'elo_surface_diff': 2200 - 2250,
 
-player1 = "Bublik A."
-player2 = "Mensik J."
+#     'win_pct_1': 0.88,
+#     'win_pct_2': 0.90,
+#     'win_pct_diff': 0.88 - 0.90,
 
-# Build the feature vector automatically
-match_features = create_match_features(player1, player2, player_to_rank, player_to_avgW, player_to_avgL, surface="Hard", round_name="QF", series="Grand Slam", best_of=3)
+#     'surface_win_pct_1': 0.95,
+#     'surface_win_pct_2': 0.92,
+#     'surface_win_pct_diff': 0.95 - 0.92,
 
-# Predict
-pred = model.predict(match_features)[0]
-prob = model.predict_proba(match_features)[0][1]
+#     'recent_wins_1': 4,
+#     'recent_wins_2': 5,
+#     'recent_wins_diff': 4 - 5,
 
-print(f"Prediction: {player1} wins" if pred == 1 else f"{player2} wins")
-print(f"Probability that {player1} wins: {prob*100:.2f}%")
+#     'h2h_wins_1': 2,
+#     'h2h_wins_2': 3,
+#     'h2h_diff': 2 - 3,
+# }
+X_new = pd.DataFrame([new_match])
+X_new.fillna(999, inplace=True)  # Fill NaN values with 999
+
+# Make predictions
+logreg_pred = logreg.predict(X_new)
+xgb_pred = xgb.predict(X_new)
+logreg_proba = logreg.predict_proba(X_new)
+xgb_proba = xgb.predict_proba(X_new)
+print("\n=== Predictions for the new match ===")
+print("Logistic Regression Prediction:", "Player 1" if logreg_pred[0] == 1 else "Player 2")
+print("Logistic Regression Probability:", logreg_proba[0][1])
+print("XGBoost Prediction:", "Player 1" if xgb_pred[0] == 1 else "Player 2")
+print("XGBoost Probability:", xgb_proba[0][1])
